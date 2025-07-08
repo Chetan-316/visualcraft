@@ -4,6 +4,7 @@ from dash import dcc, html, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio  # Explicit Kaleido usage
 import base64
 import io
 from fpdf import FPDF
@@ -11,13 +12,13 @@ import os
 import tempfile
 import time
 
+# Explicitly set Kaleido format
+pio.kaleido.scope.default_format = "png"
+
 # Initialize Dash app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.title = "VizCraft: Data Visualization Tool"
-server = app.server  # For deployment
 
-# Limit upload size to 5 MB
-app.server.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB max
+server = app.server  # Required for Render deployment
 
 # App Layout
 app.layout = dbc.Container([
@@ -38,8 +39,7 @@ app.layout = dbc.Container([
             'borderWidth': '2px',
             'borderStyle': 'dashed',
             'borderRadius': '10px',
-            'textAlign': 'center',
-            'backgroundColor': '#f8f9fa'
+            'textAlign': 'center'
         },
         multiple=False
     ),
@@ -54,16 +54,16 @@ app.layout = dbc.Container([
             options=[
                 {'label': 'Bar Chart', 'value': 'bar'},
                 {'label': 'Line Chart', 'value': 'line'},
-                {'label': 'Pie Chart', 'value': 'pie'},
                 {'label': 'Scatter Plot', 'value': 'scatter'},
-                {'label': 'Area Plot', 'value': 'area'},
+                {'label': 'Area Chart', 'value': 'area'},
+                {'label': 'Pie Chart', 'value': 'pie'}
             ],
             value='bar',
             placeholder="Select Chart Type"
         ), width=4),
     ], className='my-3'),
 
-    # Help text for special charts
+    # Help text for pie chart
     html.Div(id='chart-help-text', className='mb-3'),
 
     # Graph
@@ -84,20 +84,15 @@ app.layout = dbc.Container([
             dcc.Download(id="download-csv")
         ]),
     ], className="my-3 text-center"),
-
-    html.Footer("✨ Made by Chetan", className="text-center text-muted my-4")
+    html.Footer("Made by Chetan ❤️", className="text-center mt-4 text-muted")
 ], fluid=True)
 
 # Parse uploaded CSV file
 def parse_contents(contents):
-    try:
-        content_type, content_string = contents.split(',')
-        decoded = base64.b64decode(content_string)
-        buffer = io.BytesIO(decoded)
-        df = pd.read_csv(buffer, low_memory=False)
-        return df
-    except Exception as e:
-        return None
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+    return df
 
 # Store data and figure
 app.data_store = {}
@@ -135,16 +130,10 @@ def update_dropdowns(contents):
     if contents is None:
         return [], [], ''
     df = parse_contents(contents)
-    if df is None:
-        return [], [], dbc.Alert("⚠️ Error reading file. Please upload a valid CSV file.", color="danger")
-
-    app.data_store['df'] = df  # Save data in memory
-
-    # Get column types
+    app.data_store['df'] = df
     numeric_cols, categorical_cols = get_column_types(df)
     app.data_store['numeric_cols'] = numeric_cols
     app.data_store['categorical_cols'] = categorical_cols
-
     options = [{'label': col, 'value': col} for col in df.columns]
     return options, options, html.Div([
         html.H5("Preview of Uploaded File:"),
@@ -155,7 +144,7 @@ def update_dropdowns(contents):
         )
     ])
 
-# Callback to show help text based on chart type
+# Callback to show help text
 @app.callback(
     Output('chart-help-text', 'children'),
     Input('chart-type', 'value')
@@ -163,18 +152,9 @@ def update_dropdowns(contents):
 def update_help_text(chart_type):
     if chart_type == 'pie':
         return dbc.Alert(
-            "📝 For Pie Chart: Select a categorical column for X-axis (labels) and a numerical column for Y-axis (values).",
-            color="info"
-        )
-    elif chart_type == 'scatter':
-        return dbc.Alert(
-            "📝 For Scatter Plot: Select numeric columns for both X and Y axes.",
-            color="info"
-        )
-    elif chart_type == 'area':
-        return dbc.Alert(
-            "📝 For Area Plot: Works best with time-series or continuous data.",
-            color="info"
+            "📝 For Pie Chart: Select a categorical column for X-axis (labels) and a numerical column for Y-axis (values)",
+            color="info",
+            className="mb-2"
         )
     return ""
 
@@ -183,34 +163,27 @@ def update_help_text(chart_type):
     Output('graph-output', 'figure'),
     [Input('chart-type', 'value'),
      Input('x-axis', 'value'),
-     Input('y-axis', 'value')]
+     Input('y-axis', 'value')],
 )
 def update_graph(chart_type, x_col, y_col):
     df = app.data_store.get('df')
     if df is None or x_col is None or y_col is None:
         return {}
-
     try:
         if chart_type == 'bar':
             fig = px.bar(df, x=x_col, y=y_col, title=f"Bar Chart: {y_col} vs {x_col}")
         elif chart_type == 'line':
             fig = px.line(df, x=x_col, y=y_col, title=f"Line Chart: {y_col} vs {x_col}")
         elif chart_type == 'scatter':
-            fig = px.scatter(df, x=x_col, y=y_col, title=f"Scatter Plot: {y_col} vs {x_col}", color=x_col, size=y_col)
+            fig = px.scatter(df, x=x_col, y=y_col, size=y_col, color=x_col, title=f"Scatter Plot: {y_col} vs {x_col}")
         elif chart_type == 'area':
-            fig = px.area(df, x=x_col, y=y_col, title=f"Area Plot: {y_col} over {x_col}")
+            fig = px.area(df, x=x_col, y=y_col, title=f"Area Chart: {y_col} vs {x_col}")
         elif chart_type == 'pie':
             pie_data = df.groupby(x_col)[y_col].sum().reset_index()
             fig = px.pie(pie_data, names=x_col, values=y_col, title=f"Pie Chart: {y_col} by {x_col}")
-
-        fig.update_layout(
-            showlegend=True,
-            height=500,
-            margin=dict(t=50, b=50, l=50, r=50)
-        )
+        fig.update_layout(showlegend=True, height=500, margin=dict(t=50, b=50, l=50, r=50))
         app.data_store['fig'] = fig
         return fig
-
     except Exception as e:
         return {
             'data': [],
@@ -219,7 +192,7 @@ def update_graph(chart_type, x_col, y_col):
                 'xaxis': {'visible': False},
                 'yaxis': {'visible': False},
                 'annotations': [{
-                    'text': '⚠️ Check your data and column selections.',
+                    'text': 'Please check your data and column selections',
                     'showarrow': False,
                     'xref': 'paper',
                     'yref': 'paper',
@@ -230,7 +203,7 @@ def update_graph(chart_type, x_col, y_col):
             }
         }
 
-# Download callbacks
+# Callback to download CSV
 @app.callback(
     Output("download-csv", "data"),
     Input("btn-download-csv", "n_clicks"),
@@ -241,35 +214,34 @@ def download_csv(n_clicks):
         df = app.data_store['df']
         return dcc.send_data_frame(df.to_csv, "data.csv", index=False)
 
+# Callback to download chart as PNG
 @app.callback(
     Output("download-chart", "data"),
     Input("btn-download-chart", "n_clicks"),
     prevent_initial_call=True
 )
 def download_chart(n_clicks):
-    if app.data_store.get('fig') is not None:
-        fig = app.data_store['fig']
-        img_bytes = fig.to_image(format="png", width=1200, height=800)
+    fig = app.data_store.get('fig')
+    if fig is not None:
+        img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
         return dcc.send_bytes(img_bytes, "chart.png")
 
+# Callback to download PDF report
 @app.callback(
     Output("download-pdf", "data"),
     Input("btn-download-pdf", "n_clicks"),
     prevent_initial_call=True
 )
 def download_pdf(n_clicks):
-    if app.data_store.get('fig') is not None and app.data_store.get('df') is not None:
-        fig = app.data_store['fig']
-        df = app.data_store['df']
-        img_bytes = fig.to_image(format="png", width=1200, height=800)
+    fig = app.data_store.get('fig')
+    df = app.data_store.get('df')
+    if fig is not None and df is not None:
+        img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
         tmp_img_path, tmp_pdf_path = None, None
-
         try:
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
-                tmp_img_path = tmp_img.name
                 tmp_img.write(img_bytes)
-                tmp_img.flush()
-
+                tmp_img_path = tmp_img.name
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", size=16)
@@ -277,10 +249,10 @@ def download_pdf(n_clicks):
             pdf.ln(10)
             pdf.image(tmp_img_path, x=10, y=30, w=190)
             pdf.ln(120)
-
             pdf.set_font("Arial", size=12)
             pdf.cell(0, 10, txt="Data Preview:", ln=True, align='L')
             pdf.ln(5)
+            pdf.set_font("Arial", size=8)
             col_width = 190 / len(df.columns)
             for col in df.columns:
                 pdf.cell(col_width, 8, txt=str(col)[:15], border=1, align='C')
@@ -289,15 +261,12 @@ def download_pdf(n_clicks):
                 for val in row.values:
                     pdf.cell(col_width, 8, txt=str(val)[:15], border=1, align='C')
                 pdf.ln()
-
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
+                pdf.output(tmp_pdf.name)
                 tmp_pdf_path = tmp_pdf.name
-                pdf.output(tmp_pdf_path)
-
             with open(tmp_pdf_path, 'rb') as f:
                 pdf_data = f.read()
             return dcc.send_bytes(pdf_data, "report.pdf")
-
         finally:
             if tmp_img_path:
                 safe_delete(tmp_img_path)

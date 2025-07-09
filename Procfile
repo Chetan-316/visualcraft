@@ -1,1 +1,2 @@
-web: gunicorn vizcraft:server
+web: gunicorn app:server
+

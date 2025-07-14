@@ -45,7 +45,7 @@ pip install -r requirements.txt
 python vizcraft.py
 ```
 
-### 4️⃣ Then Open in Browser
+### 4️⃣ Then it will Open in your Browser
 
 
 ---

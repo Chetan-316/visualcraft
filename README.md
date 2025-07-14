@@ -45,10 +45,8 @@ pip install -r requirements.txt
 python vizcraft.py
 ```
 
-### 4️⃣ Open in Browser
+### 4️⃣ Then Open in Browser
 
-Go to:
-[http://127.0.0.1:8050](http://127.0.0.1:8050)
 
 ---
 
